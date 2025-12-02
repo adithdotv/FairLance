@@ -156,7 +156,7 @@ const Jobs = () => {
                 <CardContent sx={{ flexGrow: 1 }}>
                   <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                     <Typography variant="h6" component="h3">
-                      Job #{job.id}
+                      Job {job.id}
                     </Typography>
                     <Chip 
                       label={jobStatusMap[job.status]} 

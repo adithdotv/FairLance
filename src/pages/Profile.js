@@ -267,7 +267,7 @@ const Profile = () => {
                     <Box display="flex" justifyContent="space-between" alignItems="center" py={1}>
                       <Box>
                         <Typography variant="body2">
-                          Job #{job.id} - {job.role}
+                          Job {job.id} - {job.role}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           {job.description.slice(0, 50)}...

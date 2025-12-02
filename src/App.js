@@ -10,6 +10,7 @@ import CreateJob from './pages/CreateJob';
 import MyJobs from './pages/MyJobs';
 import Profile from './pages/Profile';
 import FreelancerProfile from './pages/FreelancerProfile';
+import DAO from './pages/DAO';
 
 const theme = createTheme({
   palette: {
@@ -66,6 +67,7 @@ function App() {
               <Route path="/jobs" element={<Jobs />} />
               <Route path="/create-job" element={<CreateJob />} />
               <Route path="/my-jobs" element={<MyJobs />} />
+              <Route path="/dao" element={<DAO />} />
               <Route path="/profile" element={<Profile />} />
               <Route path="/freelancer/:address" element={<FreelancerProfile />} />
             </Routes>

@@ -172,11 +172,33 @@ const MyJobs = () => {
 
     try {
       setLoading(true);
-      const tx = await contract.raiseDispute(jobId);
-      await tx.wait();
+      
+      // Step 1: Raise the dispute
+      const disputeTx = await contract.raiseDispute(jobId);
+      const disputeReceipt = await disputeTx.wait();
+      
+      // Step 2: Get the dispute ID from the event
+      const disputeRaisedEvent = disputeReceipt.logs.find(
+        log => log.fragment && log.fragment.name === 'DisputeRaised'
+      );
+      
+      if (disputeRaisedEvent) {
+        const disputeId = disputeRaisedEvent.args[0]; // First argument is disputeId
+        
+        // Step 3: Automatically select jurors
+        try {
+          const jurorTx = await contract.selectJurors(disputeId);
+          await jurorTx.wait();
+          console.log(`Jurors selected for dispute ${disputeId}`);
+        } catch (jurorError) {
+          console.error('Error selecting jurors:', jurorError);
+          alert('Dispute raised but failed to select jurors. Admin may need to select manually.');
+        }
+      }
 
       setDialogs(prev => ({ ...prev, dispute: { open: false, jobId: null } }));
       loadJobs();
+      alert('Dispute raised and jurors selected successfully!');
     } catch (error) {
       console.error('Error raising dispute:', error);
       alert('Error raising dispute: ' + error.message);
@@ -276,7 +298,7 @@ const MyJobs = () => {
                 <Card>
                   <CardContent>
                     <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                      <Typography variant="h6">Job #{job.id}</Typography>
+                      <Typography variant="h6">Job {job.id}</Typography>
                       <Chip
                         label={jobStatusMap[job.status]}
                         color={job.status === 2 ? "success" : job.status === 3 ? "error" : "primary"}
@@ -323,6 +345,23 @@ const MyJobs = () => {
                           {job.deliverableURI}
                         </Link>
                       </Box>
+                    )}
+
+                    {job.status === 3 && (
+                      <Alert severity="warning" sx={{ mt: 2 }}>
+                        <Typography variant="subtitle2" gutterBottom>
+                          ⚖️ Dispute in Progress - DAO Voting Active
+                        </Typography>
+                        <Button 
+                          size="small" 
+                          variant="outlined" 
+                          component={RouterLink} 
+                          to="/dao"
+                          sx={{ mt: 1 }}
+                        >
+                          View in DAO
+                        </Button>
+                      </Alert>
                     )}
 
                     <Box mt={2} display="flex" gap={1} flexWrap="wrap">
@@ -403,7 +442,7 @@ const MyJobs = () => {
                   <Card>
                     <CardContent>
                       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                        <Typography variant="h6">Job #{job.id}</Typography>
+                        <Typography variant="h6">Job {job.id}</Typography>
                         <Chip label={jobStatusMap[job.status]} color="secondary" size="small" />
                       </Box>
 
@@ -415,8 +454,8 @@ const MyJobs = () => {
                         ({job.bidAmount} ETH)
                       </Typography>
 
-                      {job.status === 1 && (
-                        <Box mt={2}>
+                      <Box mt={2}>
+                        {job.status === 1 && (
                           <Button
                             variant="contained"
                             onClick={() => setDialogs(prev => ({
@@ -424,10 +463,35 @@ const MyJobs = () => {
                               deliverable: { open: true, jobId: job.id }
                             }))}
                           >
-                            Submit Deliverable
+                            📤 Submit Deliverable
                           </Button>
-                        </Box>
-                      )}
+                        )}
+                        {job.status === 2 && (
+                          <Alert severity="info" sx={{ mt: 1 }}>
+                            ⏳ Waiting for client to review your deliverable
+                          </Alert>
+                        )}
+                        {job.status === 3 && (
+                          <Alert severity="warning" sx={{ mt: 1 }}>
+                            <Typography variant="body2" gutterBottom>
+                              ⚖️ Job is under dispute - DAO voting in progress
+                            </Typography>
+                            <Button 
+                              size="small" 
+                              variant="outlined" 
+                              component={RouterLink} 
+                              to="/dao"
+                            >
+                              View in DAO
+                            </Button>
+                          </Alert>
+                        )}
+                        {job.status === 4 && (
+                          <Alert severity="success" sx={{ mt: 1 }}>
+                            ✅ Work approved! Waiting for payment release
+                          </Alert>
+                        )}
+                      </Box>
                     </CardContent>
                   </Card>
                 </Grid>

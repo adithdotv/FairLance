@@ -40,6 +40,9 @@ const Navbar = () => {
               <Button color="inherit" component={Link} to="/my-jobs">
                 My Jobs
               </Button>
+              <Button color="inherit" component={Link} to="/dao">
+                🏛️ DAO
+              </Button>
               <Button color="inherit" component={Link} to="/profile">
                 Profile
               </Button>
