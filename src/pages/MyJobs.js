@@ -114,6 +114,15 @@ const MyJobs = () => {
     }
   };
 
+  const getAbsoluteURI = (uri) => {
+    if (!uri) return "";
+    if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("ipfs://")) {
+      return uri; // already absolute
+    }
+    return `https://${uri}`; // or add your gateway logic
+  };
+
+
   const onAcceptBidFromList = (freelancer, bidAmount) => {
     setDialogs(prev => ({
       ...prev,
@@ -172,33 +181,27 @@ const MyJobs = () => {
 
     try {
       setLoading(true);
-      
+
       // Step 1: Raise the dispute
       const disputeTx = await contract.raiseDispute(jobId);
       const disputeReceipt = await disputeTx.wait();
-      
+
       // Step 2: Get the dispute ID from the event
       const disputeRaisedEvent = disputeReceipt.logs.find(
         log => log.fragment && log.fragment.name === 'DisputeRaised'
       );
-      
+
       if (disputeRaisedEvent) {
         const disputeId = disputeRaisedEvent.args[0]; // First argument is disputeId
-        
-        // Step 3: Automatically select jurors
-        try {
-          const jurorTx = await contract.selectJurors(disputeId);
-          await jurorTx.wait();
-          console.log(`Jurors selected for dispute ${disputeId}`);
-        } catch (jurorError) {
-          console.error('Error selecting jurors:', jurorError);
-          alert('Dispute raised but failed to select jurors. Admin may need to select manually.');
-        }
-      }
 
-      setDialogs(prev => ({ ...prev, dispute: { open: false, jobId: null } }));
-      loadJobs();
-      alert('Dispute raised and jurors selected successfully!');
+        setDialogs(prev => ({ ...prev, dispute: { open: false, jobId: null } }));
+        loadJobs();
+        alert(`✅ Dispute raised successfully!\n\nDispute ID: ${disputeId}\n\n⏳ The admin will select jurors shortly. You can check the progress in the DAO section.`);
+      } else {
+        setDialogs(prev => ({ ...prev, dispute: { open: false, jobId: null } }));
+        loadJobs();
+        alert('✅ Dispute raised successfully! Check the DAO section for updates.');
+      }
     } catch (error) {
       console.error('Error raising dispute:', error);
       alert('Error raising dispute: ' + error.message);
@@ -337,7 +340,7 @@ const MyJobs = () => {
                           📤 Deliverable Submitted:
                         </Typography>
                         <Link
-                          href={job.deliverableURI}
+                          href={getAbsoluteURI(job.deliverableURI)}
                           target="_blank"
                           rel="noopener noreferrer"
                           sx={{ wordBreak: 'break-all', fontSize: '0.875rem' }}
@@ -352,10 +355,10 @@ const MyJobs = () => {
                         <Typography variant="subtitle2" gutterBottom>
                           ⚖️ Dispute in Progress - DAO Voting Active
                         </Typography>
-                        <Button 
-                          size="small" 
-                          variant="outlined" 
-                          component={RouterLink} 
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          component={RouterLink}
                           to="/dao"
                           sx={{ mt: 1 }}
                         >
@@ -476,10 +479,10 @@ const MyJobs = () => {
                             <Typography variant="body2" gutterBottom>
                               ⚖️ Job is under dispute - DAO voting in progress
                             </Typography>
-                            <Button 
-                              size="small" 
-                              variant="outlined" 
-                              component={RouterLink} 
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              component={RouterLink}
                               to="/dao"
                             >
                               View in DAO

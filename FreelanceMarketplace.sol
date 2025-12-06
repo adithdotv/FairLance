@@ -5,13 +5,22 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 interface IReputationNFT {
-    function mintReputation(address to, uint256 score) external returns (uint256);
+    function mintReputation(
+        address to,
+        uint256 score
+    ) external returns (uint256);
 }
 
 contract FairLance is ReentrancyGuard, Ownable {
     IReputationNFT public reputationNFT;
 
-    enum JobStatus { Open, InProgress, Completed, Disputed, Resolved }
+    enum JobStatus {
+        Open,
+        InProgress,
+        Completed,
+        Disputed,
+        Resolved
+    }
 
     struct Bid {
         address freelancer;
@@ -31,7 +40,6 @@ contract FairLance is ReentrancyGuard, Ownable {
         uint256 reputationScore;
     }
 
-    // DAO Structures
     struct Juror {
         address juror;
         uint256 stake;
@@ -49,6 +57,7 @@ contract FairLance is ReentrancyGuard, Ownable {
         uint256 jurorCount;
         bool resolved;
         bool freelancerWon;
+        uint256 raisedAt;
     }
 
     mapping(uint256 => Job) public jobs;
@@ -60,13 +69,16 @@ contract FairLance is ReentrancyGuard, Ownable {
     uint256 public disputeCounter;
     uint256 public constant STAKE_AMOUNT = 0.01 ether;
     uint256 public constant JURORS_PER_DISPUTE = 3;
-    uint256 public constant VOTE_THRESHOLD = 2;
 
     uint256 public jobCounter;
 
     // Events
     event JobCreated(uint256 indexed jobId, address client, uint256 budget);
-    event BidSubmitted(uint256 indexed jobId, address freelancer, uint256 amount);
+    event BidSubmitted(
+        uint256 indexed jobId,
+        address freelancer,
+        uint256 amount
+    );
     event BidAccepted(uint256 indexed jobId, address freelancer);
     event DeliverableSubmitted(uint256 indexed jobId, string uri);
     event PaymentReleased(uint256 indexed jobId, uint256 amount);
@@ -84,8 +96,10 @@ contract FairLance is ReentrancyGuard, Ownable {
     }
 
     // Create Job
-    function createJob(string memory _description) external payable nonReentrant {
-        require(msg.value > 0, "Budget > 0");
+    function createJob(
+        string memory _description
+    ) external payable nonReentrant {
+        require(msg.value > 0, "Budget must be > 0");
         jobCounter++;
         jobs[jobCounter] = Job({
             id: jobCounter,
@@ -104,23 +118,47 @@ contract FairLance is ReentrancyGuard, Ownable {
     // Submit Bid
     function submitBid(uint256 _jobId, uint256 _bidAmount) external {
         Job storage job = jobs[_jobId];
+        require(job.id == _jobId, "Job does not exist");
         require(job.status == JobStatus.Open, "Job not open");
-        require(_bidAmount <= job.budget, "Bid too high");
+        require(
+            _bidAmount <= job.budget && _bidAmount > 0,
+            "Invalid bid amount"
+        );
 
-        jobBids[_jobId].push(Bid({
-            freelancer: msg.sender,
-            amount: _bidAmount,
-            timestamp: block.timestamp
-        }));
+        jobBids[_jobId].push(
+            Bid({
+                freelancer: msg.sender,
+                amount: _bidAmount,
+                timestamp: block.timestamp
+            })
+        );
 
         emit BidSubmitted(_jobId, msg.sender, _bidAmount);
     }
 
     // Accept Bid
-    function acceptBid(uint256 _jobId, address _freelancer, uint256 _bidAmount) external nonReentrant {
+    function acceptBid(
+        uint256 _jobId,
+        address _freelancer,
+        uint256 _bidAmount
+    ) external nonReentrant {
         Job storage job = jobs[_jobId];
+        require(job.id == _jobId, "Job does not exist");
         require(msg.sender == job.client, "Only client");
-        require(job.status == JobStatus.Open, "Not open");
+        require(job.status == JobStatus.Open, "Job not open");
+
+        bool validBid = false;
+        for (uint i = 0; i < jobBids[_jobId].length; i++) {
+            if (
+                jobBids[_jobId][i].freelancer == _freelancer &&
+                jobBids[_jobId][i].amount == _bidAmount
+            ) {
+                validBid = true;
+                break;
+            }
+        }
+        require(validBid, "Bid not found");
+
         job.freelancer = _freelancer;
         job.bidAmount = _bidAmount;
         job.status = JobStatus.InProgress;
@@ -130,6 +168,7 @@ contract FairLance is ReentrancyGuard, Ownable {
     // Submit Deliverable
     function submitDeliverable(uint256 _jobId, string memory _uri) external {
         Job storage job = jobs[_jobId];
+        require(job.id == _jobId, "Job does not exist");
         require(msg.sender == job.freelancer, "Only freelancer");
         require(job.status == JobStatus.InProgress, "Not in progress");
         job.deliverableURI = _uri;
@@ -137,29 +176,38 @@ contract FairLance is ReentrancyGuard, Ownable {
         emit DeliverableSubmitted(_jobId, _uri);
     }
 
-    // Release Payment
-    function releasePayment(uint256 _jobId, uint256 _score) external nonReentrant {
+    // Release Payment (only when no dispute)
+    function releasePayment(
+        uint256 _jobId,
+        uint256 _score
+    ) external nonReentrant {
         Job storage job = jobs[_jobId];
+        require(job.id == _jobId, "Job does not exist");
         require(msg.sender == job.client, "Only client");
-        require(job.status == JobStatus.Completed || job.status == JobStatus.Resolved, "Not ready");
+        require(
+            job.status == JobStatus.Completed,
+            "Must be completed (no dispute)"
+        );
         require(_score >= 1 && _score <= 5, "Score 1-5");
-        require(job.freelancer != address(0), "No freelancer");
-        require(job.bidAmount > 0, "No bid");
-        require(address(this).balance >= job.bidAmount, "Insufficient balance");
+        require(
+            job.freelancer != address(0) && job.bidAmount > 0,
+            "No freelancer or bid"
+        );
 
         payable(job.freelancer).transfer(job.bidAmount);
         job.reputationScore = _score;
+        job.status = JobStatus.Resolved;
         emit PaymentReleased(_jobId, job.bidAmount);
 
         uint256 tokenId = reputationNFT.mintReputation(job.freelancer, _score);
         emit ReputationMinted(job.freelancer, tokenId, _score);
     }
 
-    // Stake as Juror
+    // Stake as Juror (can top-up)
     function stakeAsJuror() external payable nonReentrant {
-        require(msg.value == STAKE_AMOUNT, "Must stake exactly 0.1 ETH");
+        require(msg.value == STAKE_AMOUNT, "Must stake exactly 0.01 ETH");
         if (jurorStakes[msg.sender] == 0) {
-            jurorPool.push(msg.sender);  // Add to pool only once
+            jurorPool.push(msg.sender);
         }
         jurorStakes[msg.sender] += msg.value;
         emit JurorStaked(msg.sender, msg.value);
@@ -170,6 +218,14 @@ contract FairLance is ReentrancyGuard, Ownable {
         uint256 stake = jurorStakes[msg.sender];
         require(stake > 0, "No stake");
         jurorStakes[msg.sender] = 0;
+        // Remove from pool
+        for (uint i = 0; i < jurorPool.length; i++) {
+            if (jurorPool[i] == msg.sender) {
+                jurorPool[i] = jurorPool[jurorPool.length - 1];
+                jurorPool.pop();
+                break;
+            }
+        }
         payable(msg.sender).transfer(stake);
         emit StakeWithdrawn(msg.sender, stake);
     }
@@ -177,8 +233,10 @@ contract FairLance is ReentrancyGuard, Ownable {
     // Raise Dispute
     function raiseDispute(uint256 _jobId) external {
         Job storage job = jobs[_jobId];
+        require(job.id == _jobId, "Job does not exist");
         require(msg.sender == job.client, "Only client");
         require(job.status == JobStatus.Completed, "Must be completed");
+
         job.status = JobStatus.Disputed;
         disputeCounter++;
         disputes[disputeCounter] = Dispute({
@@ -190,37 +248,66 @@ contract FairLance is ReentrancyGuard, Ownable {
             votesAgainst: 0,
             jurorCount: 0,
             resolved: false,
-            freelancerWon: false
+            freelancerWon: false,
+            raisedAt: block.timestamp
         });
+
+        // Automatically select jurors
+        _selectJurors(disputeCounter);
+
         emit DisputeRaised(disputeCounter, _jobId);
     }
 
-    function selectJurors(uint256 _disputeId) external onlyOwner {
+    function _selectJurors(uint256 _disputeId) internal {
+        require(
+            jurorPool.length >= JURORS_PER_DISPUTE,
+            "Not enough jurors in pool"
+        );
         Dispute storage dispute = disputes[_disputeId];
-        require(dispute.jurorCount == 0, "Jurors already selected");
-        require(jurorPool.length >= JURORS_PER_DISPUTE, "Not enough staked jurors");
 
+        uint256 poolSize = jurorPool.length;
         for (uint i = 0; i < JURORS_PER_DISPUTE; i++) {
-            address realJuror = jurorPool[i];  // Use real staked addresses
-            disputeJurors[_disputeId].push(Juror({
-                juror: realJuror,
-                stake: jurorStakes[realJuror],
-                hasVoted: false,
-                inFavor: false
-            }));
-            dispute.totalStake += jurorStakes[realJuror];
-            dispute.jurorCount++;
+            uint256 rand = uint256(
+                keccak256(
+                    abi.encodePacked(
+                        block.prevrandao,
+                        block.timestamp,
+                        _disputeId,
+                        i
+                    )
+                )
+            ) % poolSize;
+
+            address selected = jurorPool[rand];
+
+            // Swap to avoid duplicates in this selection
+            jurorPool[rand] = jurorPool[poolSize - 1 - i];
+
+            disputeJurors[_disputeId].push(
+                Juror({
+                    juror: selected,
+                    stake: jurorStakes[selected],
+                    hasVoted: false,
+                    inFavor: false
+                })
+            );
+            dispute.totalStake += jurorStakes[selected];
         }
-        emit JurorsSelected(_disputeId, dispute.jurorCount);
+        dispute.jurorCount = JURORS_PER_DISPUTE;
+        emit JurorsSelected(_disputeId, JURORS_PER_DISPUTE);
     }
 
     // Vote on Dispute
     function voteOnDispute(uint256 _disputeId, bool _inFavor) external {
         Dispute storage dispute = disputes[_disputeId];
-        require(dispute.resolved == false, "Resolved");
-        require(dispute.jurorCount > 0, "No jurors");
+        require(!dispute.resolved, "Already resolved");
+        require(
+            dispute.jurorCount == JURORS_PER_DISPUTE,
+            "Jurors not selected"
+        );
 
         Juror[] storage jurors = disputeJurors[_disputeId];
+        bool found = false;
         for (uint i = 0; i < jurors.length; i++) {
             if (jurors[i].juror == msg.sender && !jurors[i].hasVoted) {
                 jurors[i].hasVoted = true;
@@ -228,10 +315,13 @@ contract FairLance is ReentrancyGuard, Ownable {
                 if (_inFavor) dispute.votesFor += jurors[i].stake;
                 else dispute.votesAgainst += jurors[i].stake;
                 emit JurorVoted(_disputeId, msg.sender, _inFavor);
+                found = true;
                 break;
             }
         }
+        require(found, "Not a juror or already voted");
 
+        // Check if all voted
         uint256 totalVoted = 0;
         for (uint i = 0; i < jurors.length; i++) {
             if (jurors[i].hasVoted) totalVoted++;
@@ -245,14 +335,24 @@ contract FairLance is ReentrancyGuard, Ownable {
             Job storage job = jobs[dispute.jobId];
             job.status = JobStatus.Resolved;
 
-            if (!freelancerWon) payable(dispute.client).transfer(job.bidAmount);
+            if (freelancerWon) {
+                payable(dispute.freelancer).transfer(job.bidAmount);
+                emit PaymentReleased(dispute.jobId, job.bidAmount);
+                uint256 tokenId = reputationNFT.mintReputation(
+                    dispute.freelancer,
+                    3
+                ); // neutral score
+                emit ReputationMinted(dispute.freelancer, tokenId, 3);
+            } else {
+                payable(dispute.client).transfer(job.bidAmount);
+            }
 
-            Juror[] storage jrs = disputeJurors[_disputeId];
-            for (uint i = 0; i < jrs.length; i++) {
-                if (jrs[i].inFavor != freelancerWon) {
-                    uint256 slash = jrs[i].stake / 2;
-                    jurorStakes[jrs[i].juror] -= slash;
-                    emit StakeSlashed(jrs[i].juror, slash);
+            // Slash wrong voters
+            for (uint i = 0; i < jurors.length; i++) {
+                if (jurors[i].inFavor != freelancerWon) {
+                    uint256 slash = jurors[i].stake / 2;
+                    jurorStakes[jurors[i].juror] -= slash;
+                    emit StakeSlashed(jurors[i].juror, slash);
                 }
             }
 
@@ -260,11 +360,13 @@ contract FairLance is ReentrancyGuard, Ownable {
         }
     }
 
-    // Cancel Job
+    // Cancel Job (only if no bids yet)
     function cancelJob(uint256 _jobId) external nonReentrant {
         Job storage job = jobs[_jobId];
+        require(job.id == _jobId, "Job does not exist");
         require(msg.sender == job.client, "Only client");
         require(job.status == JobStatus.Open, "Not open");
+        require(jobBids[_jobId].length == 0, "Cannot cancel after bids");
         payable(job.client).transfer(job.budget);
         delete jobs[_jobId];
     }
@@ -284,6 +386,16 @@ contract FairLance is ReentrancyGuard, Ownable {
 
     function getJurorPool() public view returns (address[] memory) {
         return jurorPool;
+    }
+
+    function getJob(uint256 _jobId) public view returns (Job memory) {
+        return jobs[_jobId];
+    }
+
+    function getDispute(
+        uint256 _disputeId
+    ) public view returns (Dispute memory) {
+        return disputes[_disputeId];
     }
 
     receive() external payable {}

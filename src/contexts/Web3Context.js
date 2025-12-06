@@ -11,7 +11,7 @@ export const useWeb3 = () => {
   return context;
 };
 
-const CONTRACT_ADDRESS = '0x33033b2D6E540585a75f744e605F2E9406Be2910';
+const CONTRACT_ADDRESS = '0xBb5e9A43eF9876620Fc5c819C6AceE93B93b2325';
 
 const CONTRACT_ABI = [
   "function createJob(string memory _description) external payable",

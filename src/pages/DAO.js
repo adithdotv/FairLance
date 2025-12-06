@@ -23,6 +23,7 @@ import {
   TableRow,
   Paper,
   LinearProgress,
+  CircularProgress,
   Divider,
   Link
 } from '@mui/material';
@@ -36,6 +37,7 @@ const DAO = () => {
   const [tabValue, setTabValue] = useState(0);
   const [jurorStake, setJurorStake] = useState('0');
   const [disputes, setDisputes] = useState([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [dialogs, setDialogs] = useState({
     stake: { open: false },
     withdraw: { open: false },
@@ -43,6 +45,18 @@ const DAO = () => {
   });
 
   const STAKE_AMOUNT = '0.01'; // 0.01 ETH
+
+  const checkAdminStatus = async () => {
+    if (!contract || !account) return;
+    
+    try {
+      const owner = await contract.owner();
+      setIsAdmin(owner.toLowerCase() === account.toLowerCase());
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+      setIsAdmin(false);
+    }
+  };
 
   const loadJurorStake = async () => {
     if (!contract || !account) return;
@@ -160,17 +174,29 @@ const DAO = () => {
 
   const handleSelectJurors = async (disputeId) => {
     if (!contract || !disputeId) return;
+    
+    if (!isAdmin) {
+      alert('Only the contract admin can select jurors manually.');
+      return;
+    }
 
     try {
       setLoading(true);
+      console.log(`Admin selecting jurors for dispute ${disputeId}`);
       const tx = await contract.selectJurors(disputeId);
       await tx.wait();
       
-      loadDisputes();
-      alert(`Jurors selected for dispute #${disputeId}`);
+      await loadDisputes();
+      alert(`✅ Jurors selected successfully for dispute #${disputeId}!`);
     } catch (error) {
       console.error('Error selecting jurors:', error);
-      alert('Error selecting jurors: ' + error.message);
+      if (error.message.includes('Not enough staked jurors')) {
+        alert('❌ Cannot select jurors: Not enough staked jurors (need at least 3). Please encourage more users to stake as jurors first.');
+      } else if (error.message.includes('Jurors already selected')) {
+        alert('⚠️ Jurors have already been selected for this dispute.');
+      } else {
+        alert(`❌ Error selecting jurors: ${error.message}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -179,6 +205,7 @@ const DAO = () => {
   useEffect(() => {
     loadJurorStake();
     loadDisputes();
+    checkAdminStatus();
   }, [contract, account]);
 
   // Add event listeners for real-time updates
@@ -232,6 +259,17 @@ const DAO = () => {
       <Typography variant="h4" gutterBottom sx={{ color: '#2e7d32', mb: 4 }}>
         🏛️ FairLance DAO
       </Typography>
+
+      {isAdmin && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          <Typography variant="body2">
+            🔧 <strong>Admin Access:</strong> You can manually select jurors for disputes that failed automatic selection.
+          </Typography>
+          <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+            Your address: {account?.slice(0, 6)}...{account?.slice(-4)}
+          </Typography>
+        </Alert>
+      )}
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
@@ -310,8 +348,14 @@ const DAO = () => {
                 <Typography variant="body2" paragraph>
                   • <strong>Lose 50% stake</strong> if you vote with the minority
                 </Typography>
-                <Typography variant="body2">
+                <Typography variant="body2" paragraph>
                   • <strong>3 jurors</strong> are selected for each dispute
+                </Typography>
+                
+                <Divider sx={{ my: 2 }} />
+                
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  <strong>🔧 Admin Controls:</strong> Only the contract admin can manually select jurors when automatic selection fails.
                 </Typography>
               </CardContent>
             </Card>
@@ -332,7 +376,7 @@ const DAO = () => {
                     <CardContent>
                       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                         <Typography variant="h6">
-                          ⚖️ Dispute #{dispute.id} (Job #{dispute.jobId})
+                          ⚖️ Dispute {dispute.id} (Job {dispute.jobId})
                         </Typography>
                         <Chip label="Active" color="warning" />
                       </Box>
@@ -408,14 +452,28 @@ const DAO = () => {
 
                       <Box display="flex" gap={1} flexWrap="wrap">
                         {dispute.jurorCount === '0' && (
-                          <Button
-                            variant="outlined"
-                            color="warning"
-                            onClick={() => handleSelectJurors(dispute.id)}
-                            disabled={loading}
-                          >
-                            👥 Select Jurors
-                          </Button>
+                          <>
+                            {isAdmin ? (
+                              <Button
+                                variant="contained"
+                                color="warning"
+                                onClick={() => handleSelectJurors(dispute.id)}
+                                disabled={loading}
+                                startIcon={loading ? <CircularProgress size={16} /> : null}
+                              >
+                                🔧 Admin: Select Jurors
+                              </Button>
+                            ) : (
+                              <Alert severity="warning" sx={{ width: '100%' }}>
+                                <Typography variant="body2">
+                                  ⏳ <strong>Waiting for admin to select jurors...</strong>
+                                </Typography>
+                                <Typography variant="caption">
+                                  Jurors need to be selected before voting can begin. Contact the admin if this takes too long.
+                                </Typography>
+                              </Alert>
+                            )}
+                          </>
                         )}
                         
                         {parseFloat(jurorStake) >= 0.01 && dispute.jurorCount > '0' && (
@@ -460,8 +518,8 @@ const DAO = () => {
                 <TableBody>
                   {resolvedDisputes.map((dispute) => (
                     <TableRow key={dispute.id}>
-                      <TableCell>#{dispute.id}</TableCell>
-                      <TableCell>#{dispute.jobId}</TableCell>
+                      <TableCell>{dispute.id}</TableCell>
+                      <TableCell>{dispute.jobId}</TableCell>
                       <TableCell>
                         <Chip 
                           label={dispute.freelancerWon ? "Freelancer" : "Client"} 
@@ -533,7 +591,7 @@ const DAO = () => {
             Cast your vote on this dispute. Choose carefully - minority voters lose 50% of their stake!
           </Typography>
           <Typography variant="body2" color="text.secondary" gutterBottom>
-            Dispute #{dialogs.vote.disputeId} (Job #{dialogs.vote.jobId})
+            Dispute {dialogs.vote.disputeId} (Job {dialogs.vote.jobId})
           </Typography>
           <Alert severity="info" sx={{ mt: 2 }}>
             Your vote is weighted by your stake amount ({jurorStake} ETH)
